@@ -16,18 +16,18 @@ tasks = [
     {
         "name": "Entertainment",
         "type": "limit",
-        "minutes": 5,
+        "minutes": 1,
         "reached_today": False
     },
     {
         "name": "Software Development",
         "type": "goal",
-        "minutes": 5,
+        "minutes": 1,
         "reached_today": False
     },
     {
         "type": "productivity",
-        "minutes": 5,
+        "minutes": 1,
         "reached_today": False
     }
 ]
@@ -51,7 +51,7 @@ def send_request(**additional_params):
 
     r = requests.get(API_URL, params=params)
     data = r.json()
-    print(json.dumps(data, indent=2))
+    #print(json.dumps(data, indent=2))
 
     df = pd.DataFrame(data['rows'], columns=data['row_headers'])
     df.rename(columns={'Time Spent (seconds)': 'Time'}, inplace=True)
@@ -82,10 +82,10 @@ def process_productivity(task, bot):
 
         message = "Goal reached, you have logged {} productive minutes out of {} minutes goal.".format(time_spent, target)
 
-    if LOCAL:
-        print(message)
-    else:
-        bot.sendMessage(chat_id=chat_id, text=message)
+        if LOCAL:
+            print(message)
+        else:
+            bot.sendMessage(chat_id=chat_id, text=message)
 
 def process_category(task, bot):
 
@@ -108,16 +108,14 @@ def check_goals(request):
 
     bot = telegram.Bot(token=os.environ["TELEGRAM_TOKEN"])
 
-    #if request.method == "GET":
+    if LOCAL == True or request.method == "GET":
 
-    for task in tasks:
-        if task["type"] in ["goal", "limit"]:
-            process_category(task, bot)
+        for task in tasks:
+            if task["type"] in ["goal", "limit"]:
+                process_category(task, bot)
 
-        elif task['type'] == 'productivity':
-            process_productivity(task, bot)
-
-    # end if
+            elif task['type'] == 'productivity':
+                process_productivity(task, bot)
 
     return "ok"
 
