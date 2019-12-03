@@ -3,6 +3,8 @@ import requests
 
 import telegram
 
+from datetime import date
+
 API_URL = "https://www.rescuetime.com/anapi/data"
 
 def check_productivity(request):
@@ -13,14 +15,15 @@ def check_productivity(request):
 
         api_token = os.environ["RESCUE_TIME_API_TOKEN"]
 
+        today = str(date.today())
+
         params = {
             'key': api_token,
             'format': 'json',
             'perspective': 'interval',
             'restrict_kind': 'efficiency',
             'resolution_time': 'day',
-            # looks like there is a new bug on RT side, returning data for 2-3 days back
-            'restrict_begin':'2019-11-28'
+            'restrict_begin': today
         }
 
         r = requests.get(API_URL, params=params)
