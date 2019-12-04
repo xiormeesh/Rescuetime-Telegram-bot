@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import os
 import json
 import requests
@@ -9,38 +7,22 @@ import telegram
 
 from datetime import date
 
+# working with firestore
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
+
 API_URL = "https://www.rescuetime.com/anapi/data"
 
-LOCAL = True
-
-# for testing only, move to firebase
-tasks = [
-    {
-        "name": "Entertainment",
-        "type": "limit",
-        "minutes": 1,
-        "reached_today": False
-    },
-    {
-        "name": "Software Development",
-        "type": "goal",
-        "minutes": 1,
-        "reached_today": False
-    },
-    {
-        "type": "productivity",
-        "minutes": 1,
-        "reached_today": False
-    }
-]
 
 def extract_from_cell(df, what, where, where_value):
     try:
-        cell = df.loc[df[where] == where_value, [what]].iat[0,0]
+        cell = df.loc[df[where] == where_value, [what]].iat[0, 0]
     except IndexError:
         cell = None
 
     return cell
+
 
 def send_request(**additional_params):
 
@@ -53,7 +35,6 @@ def send_request(**additional_params):
 
     r = requests.get(API_URL, params=params)
     data = r.json()
-    #print(json.dumps(data, indent=2))
 
     df = pd.DataFrame(data['rows'], columns=data['row_headers'])
     df.rename(columns={'Time Spent (seconds)': 'Time'}, inplace=True)
@@ -62,10 +43,11 @@ def send_request(**additional_params):
 
     return df
 
+
 def process_productivity(task, bot):
 
     target = task['minutes']
-    
+
     today = send_request(perspective="interval", resolution_time="day", restrict_kind="efficiency")
     productivity_score = today.at[0, "Efficiency (percent)"]
 
@@ -90,37 +72,60 @@ def process_productivity(task, bot):
             chat_id = os.environ["TELEGRAM_CHAT_ID"]
             bot.sendMessage(chat_id=chat_id, text=message)
 
-def process_category(task, bot):
 
-    target = task['minutes']
-    
+def process_category(task, bot):
+    '''
+    Sends a message if goal/limit has been reached
+
+    Parameters:
+    task: instance of DocumentSnapshot (https://googleapis.dev/python/firestore/latest/document.html)
+    bot: instance of Telegram.Bot (https://python-telegram-bot.readthedocs.io/en/stable/telegram.bot.html)
+
+    Returns:
+    None
+
+    '''
+
+    target = task.get('minutes')
+
     today = send_request(perspective="rank", restrict_kind="overview")
-    time_spent = extract_from_cell(today, 'Time', 'Category', task['name'])
+    time_spent = extract_from_cell(today, 'Time', 'Category', task.get('name'))
 
     if time_spent and time_spent >= target:
 
-        message = "{} reached, you've spent {}/{} minutes on {}".format(task['type'].capitalize(), time_spent, target, task['name'])
+        message = "{} reached, you've spent {}/{} minutes on {}".format(task.get('type').capitalize(), time_spent, target, task.get('name'))
 
-        if LOCAL:
-            print(message)
-        else:
-            chat_id = os.environ["TELEGRAM_CHAT_ID"]
-            bot.sendMessage(chat_id=chat_id, text=message)
+        chat_id = os.environ["TELEGRAM_CHAT_ID"]
+        bot.sendMessage(chat_id=chat_id, text=message)
 
 
 def check_goals(request):
+    '''
+    Gets tasks from firestore and checks if notifications need to be sent
+    '''
 
+    # initializing the bot
     bot = telegram.Bot(token=os.environ["TELEGRAM_TOKEN"])
 
-    if LOCAL == True or request.method == "GET":
+    if request.method == "GET":
+
+        # getting a list of tasks that are not marked and completed from firestore
+        cred = credentials.ApplicationDefault()
+        firebase_admin.initialize_app(cred, {
+            'projectId': cred.project_id,
+        })
+        db = firestore.client()
+
+        tasks = db.collection('tasks').where("reached_today", "==", False).stream()
 
         for task in tasks:
-            if task["type"] in ["goal", "limit"]:
+
+            print("{} => {}".format(task.id, task.to_dict()))
+
+            if task.get('type') in ["goal", "limit"]:
                 process_category(task, bot)
 
-            elif task['type'] == 'productivity':
+            elif task.get('type') == 'productivity':
                 process_productivity(task, bot)
 
     return "ok"
-
-check_goals("test")

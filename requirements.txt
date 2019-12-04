@@ -1,3 +1,6 @@
 pandas
 python-telegram-bot
+# required to work with firestore client from firebase-admin
 google-cloud-firestore
+# to handle initialization and authorization
+firebase-admin
