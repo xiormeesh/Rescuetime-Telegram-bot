@@ -1,8 +1,6 @@
 #!/usr/bin/python3
 
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+from google.cloud import firestore
 
 
 def reset_notifications(request):
@@ -14,17 +12,8 @@ def reset_notifications(request):
 
     if request.method == "GET":
 
-        # https://firebase.google.com/docs/reference/admin/python/firebase_admin.credentials
-        cred = credentials.ApplicationDefault()
-
-        # https://firebase.google.com/docs/reference/admin/python/firebase_admin
-        firebase_admin.initialize_app(cred, {
-            # firebase and function must be in the same project
-            'projectId': cred.project_id,
-        })
-
-        # https://firebase.google.com/docs/reference/admin/python/firebase_admin.firestore
-        db = firestore.client()
+        # https://github.com/googleapis/google-cloud-python/tree/master/firestore
+        db = firestore.Client()
 
         # query: https://googleapis.dev/python/firestore/latest/query.html
         # stream() on Query returns an iterator over DocumentSnapshots

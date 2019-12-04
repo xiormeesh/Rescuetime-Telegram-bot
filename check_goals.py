@@ -1,5 +1,4 @@
 import os
-import json
 import requests
 import pandas as pd
 
@@ -7,10 +6,7 @@ import telegram
 
 from datetime import date
 
-# working with firestore
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+from google.cloud import firestore
 
 API_URL = "https://www.rescuetime.com/anapi/data"
 
@@ -19,7 +15,7 @@ def extract_from_cell(df, what, where, where_value):
     try:
         cell = df.loc[df[where] == where_value, [what]].iat[0, 0]
     except IndexError:
-        cell = None
+        cell = 0
 
     return cell
 
@@ -36,44 +32,16 @@ def send_request(**additional_params):
     r = requests.get(API_URL, params=params)
     data = r.json()
 
+    # converting to pandas dataframe to search easier for specific values
     df = pd.DataFrame(data['rows'], columns=data['row_headers'])
     df.rename(columns={'Time Spent (seconds)': 'Time'}, inplace=True)
+    # converting seconds to minutes
     df['Time'] = df['Time'].apply(lambda x: int(x/60))
-    print(df)
 
     return df
 
 
-def process_productivity(task, bot):
-
-    target = task['minutes']
-
-    today = send_request(perspective="interval", resolution_time="day", restrict_kind="efficiency")
-    productivity_score = today.at[0, "Efficiency (percent)"]
-
-    today_date = str(date.today())
-    today = send_request(perspective="interval", resolution_time="day", restrict_kind="productivity", restrict_begin=today_date)
-
-    # could update to > 0
-    very_productive_min = extract_from_cell(today, 'Time', 'Productivity', 2) or 0
-    print("very", very_productive_min)
-    productive_min = extract_from_cell(today, 'Time', 'Productivity', 1) or 0
-    print("productive", productive_min)
-
-    time_spent = very_productive_min + productive_min
-
-    if time_spent and time_spent >= target:
-
-        message = "Goal reached, you have logged {} productive minutes out of {} minutes goal.".format(time_spent, target)
-
-        if LOCAL:
-            print(message)
-        else:
-            chat_id = os.environ["TELEGRAM_CHAT_ID"]
-            bot.sendMessage(chat_id=chat_id, text=message)
-
-
-def process_category(task, bot):
+def process_task(task, bot):
     '''
     Sends a message if goal/limit has been reached
 
@@ -83,20 +51,40 @@ def process_category(task, bot):
 
     Returns:
     None
-
     '''
 
     target = task.get('minutes')
 
-    today = send_request(perspective="rank", restrict_kind="overview")
-    time_spent = extract_from_cell(today, 'Time', 'Category', task.get('name'))
+    if task.get('type') == "productivity":
 
-    if time_spent and time_spent >= target:
+        today_date = str(date.today())
+        today = send_request(perspective="interval", resolution_time="day", restrict_kind="productivity", restrict_begin=today_date)
+
+        very_productive_min = extract_from_cell(today, 'Time', 'Productivity', 2)
+        productive_min = extract_from_cell(today, 'Time', 'Productivity', 1)
+
+        time_spent = very_productive_min + productive_min
+
+        message = "Goal reached, you have logged {} productive minutes out of {} minutes goal.".format(time_spent, target)
+
+    elif task.get('type') in ["limit", "goal"]:
+
+        today = send_request(perspective="rank", restrict_kind="overview")
+        time_spent = extract_from_cell(today, 'Time', 'Category', task.get('name'))
 
         message = "{} reached, you've spent {}/{} minutes on {}".format(task.get('type').capitalize(), time_spent, target, task.get('name'))
 
+    else:
+        print("Unknown task type")
+
+    print(message)
+
+    if time_spent and time_spent >= target:
+
         chat_id = os.environ["TELEGRAM_CHAT_ID"]
         bot.sendMessage(chat_id=chat_id, text=message)
+
+        task.reference.update({"reached_today": True})
 
 
 def check_goals(request):
@@ -109,23 +97,15 @@ def check_goals(request):
 
     if request.method == "GET":
 
-        # getting a list of tasks that are not marked and completed from firestore
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred, {
-            'projectId': cred.project_id,
-        })
-        db = firestore.client()
+        db = firestore.Client()
 
+        # processing only unmet goals
         tasks = db.collection('tasks').where("reached_today", "==", False).stream()
 
         for task in tasks:
 
             print("{} => {}".format(task.id, task.to_dict()))
 
-            if task.get('type') in ["goal", "limit"]:
-                process_category(task, bot)
-
-            elif task.get('type') == 'productivity':
-                process_productivity(task, bot)
+            process_task(task, bot)
 
     return "ok"
